@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Suspense, lazy } from 'react';
 import { Header } from './components/Header';
 import { CategoryNav } from './components/CategoryNav';
 import { FlashDeals } from './components/FlashDeals';
@@ -25,16 +25,16 @@ import {
 import { useTheme } from './hooks/useTheme';
 import { useHashRoute } from './hooks/useHashRoute';
 
-// Pages
-import { ProductPage } from './pages/ProductPage';
-import { CartPage } from './pages/CartPage';
-import { CheckoutPage } from './pages/CheckoutPage';
-import { TrackingPage } from './pages/TrackingPage';
-import { AboutPage } from './pages/AboutPage';
-import { ContactPage } from './pages/ContactPage';
-import { FAQPage } from './pages/FAQPage';
-import { AdminPage } from './pages/AdminPage';
-import { MaintenancePage } from './pages/MaintenancePage';
+// Code-split sub-pages for ultra-fast instant homepage loading
+const ProductPage = lazy(() => import('./pages/ProductPage').then(m => ({ default: m.ProductPage })));
+const CartPage = lazy(() => import('./pages/CartPage').then(m => ({ default: m.CartPage })));
+const CheckoutPage = lazy(() => import('./pages/CheckoutPage').then(m => ({ default: m.CheckoutPage })));
+const TrackingPage = lazy(() => import('./pages/TrackingPage').then(m => ({ default: m.TrackingPage })));
+const AboutPage = lazy(() => import('./pages/AboutPage').then(m => ({ default: m.AboutPage })));
+const ContactPage = lazy(() => import('./pages/ContactPage').then(m => ({ default: m.ContactPage })));
+const FAQPage = lazy(() => import('./pages/FAQPage').then(m => ({ default: m.FAQPage })));
+const AdminPage = lazy(() => import('./pages/AdminPage').then(m => ({ default: m.AdminPage })));
+const MaintenancePage = lazy(() => import('./pages/MaintenancePage').then(m => ({ default: m.MaintenancePage })));
 
 export default function App() {
   const { isDark, toggleTheme } = useTheme();
@@ -43,7 +43,7 @@ export default function App() {
   // Instant State Initialization (Zero-Wait Local Hydration)
   const [products, setProducts] = useState<Product[]>(() => {
     try {
-      const local = localStorage.getItem('smart_products');
+      const local = typeof localStorage !== 'undefined' ? localStorage.getItem('smart_products') : null;
       if (local) {
         const parsed = JSON.parse(local);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -54,7 +54,7 @@ export default function App() {
 
   const [categories, setCategories] = useState<CategoryItem[]>(() => {
     try {
-      const local = localStorage.getItem('smart_categories');
+      const local = typeof localStorage !== 'undefined' ? localStorage.getItem('smart_categories') : null;
       if (local) {
         const parsed = JSON.parse(local);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -65,7 +65,7 @@ export default function App() {
 
   const [availablePromos, setAvailablePromos] = useState<PromoCode[]>(() => {
     try {
-      const local = localStorage.getItem('smart_promos');
+      const local = typeof localStorage !== 'undefined' ? localStorage.getItem('smart_promos') : null;
       if (local) {
         const parsed = JSON.parse(local);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -76,7 +76,7 @@ export default function App() {
 
   const [storeSettings, setStoreSettings] = useState<StoreSettings>(() => {
     try {
-      const local = localStorage.getItem('smart_settings');
+      const local = typeof localStorage !== 'undefined' ? localStorage.getItem('smart_settings') : null;
       if (local) {
         const parsed = JSON.parse(local);
         if (parsed && typeof parsed === 'object') return parsed;
@@ -250,7 +250,11 @@ export default function App() {
 
   // Check Maintenance Mode
   if (storeSettings.maintenance_mode && route.path !== '/admin') {
-    return <MaintenancePage message={storeSettings.maintenance_message} navigate={navigate} />;
+    return (
+      <Suspense fallback={null}>
+        <MaintenancePage message={storeSettings.maintenance_message} navigate={navigate} />
+      </Suspense>
+    );
   }
 
   // Render Page Content according to Hash Route
@@ -358,8 +362,14 @@ export default function App() {
           storeName={storeSettings.store_name}
         />
 
-        {/* Page Content */}
-        {renderContent()}
+        {/* Page Content with Fast Suspense Fallback */}
+        <Suspense fallback={
+          <div className="min-h-[40vh] flex items-center justify-center">
+            <div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        }>
+          {renderContent()}
+        </Suspense>
       </div>
 
       {/* Footer */}

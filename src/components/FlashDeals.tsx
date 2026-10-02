@@ -76,6 +76,8 @@ export const FlashDeals: React.FC<FlashDealsProps> = ({
               <img
                 src={product.image}
                 alt={product.name}
+                loading="lazy"
+                decoding="async"
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
                 onError={(e) => {

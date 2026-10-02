@@ -33,6 +33,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           src={product.image}
           alt={`${product.name} - ${product.category} Price in BD ৳${product.price} | Smart Solution BD`}
           title={`${product.name} - ${product.category} in Bangladesh`}
+          loading="lazy"
+          decoding="async"
           referrerPolicy="no-referrer"
           className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
           onError={(e) => {
