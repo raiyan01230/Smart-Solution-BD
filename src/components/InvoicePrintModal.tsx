@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { Order, StoreSettings } from '../services/dbService';
-import { Printer, X, Download, Phone, MapPin, CheckCircle2 } from 'lucide-react';
+import { Printer, X, Download, Image as ImageIcon, Phone, MapPin, CheckCircle2 } from 'lucide-react';
+import html2canvas from 'html2canvas';
 
 interface InvoicePrintModalProps {
   order: Order | null;
@@ -13,10 +14,80 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
   storeSettings,
   onClose,
 }) => {
+  const invoiceRef = useRef<HTMLDivElement>(null);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+
   if (!order) return null;
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleDownloadImage = async () => {
+    if (!invoiceRef.current) return;
+    try {
+      setIsGeneratingImage(true);
+      const canvas = await html2canvas(invoiceRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      });
+      const image = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.href = image;
+      link.download = `Smart-Solution-BD-Invoice-${order.id}.png`;
+      link.click();
+    } catch (err) {
+      console.error('Failed to generate invoice image:', err);
+      window.print();
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  };
+
+  const handlePrintImage = async () => {
+    if (!invoiceRef.current) return;
+    try {
+      setIsGeneratingImage(true);
+      const canvas = await html2canvas(invoiceRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      });
+      const dataUrl = canvas.toDataURL('image/png');
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(`
+          <html>
+            <head>
+              <title>Official Invoice #${order.id} - Smart Solution BD</title>
+              <style>
+                body { margin: 0; padding: 20px; display: flex; justify-content: center; background: #f8fafc; font-family: sans-serif; }
+                .print-container { text-align: center; max-width: 800px; width: 100%; }
+                img { max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border: 1px solid #e2e8f0; background: #fff; }
+                @media print {
+                  body { padding: 0; background: #fff; }
+                  img { box-shadow: none; border: none; width: 100%; }
+                }
+              </style>
+            </head>
+            <body>
+              <div class="print-container">
+                <img src="${dataUrl}" onload="setTimeout(() => { window.print(); }, 500);" />
+              </div>
+            </body>
+          </html>
+        `);
+        printWindow.document.close();
+      } else {
+        window.print();
+      }
+    } catch (err) {
+      console.error('Failed to print invoice image:', err);
+      window.print();
+    } finally {
+      setIsGeneratingImage(false);
+    }
   };
 
   return (
@@ -24,21 +95,42 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
       {/* Modal Actions Header (Hidden when printing via print:hidden class) */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-3xl w-full p-4 sm:p-6 relative shadow-2xl border border-slate-200 dark:border-slate-800 my-auto max-h-[90vh] overflow-y-auto">
         
-        <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-200 dark:border-slate-800 print:hidden">
+        <div className="flex flex-wrap items-center justify-between pb-4 mb-4 border-b border-slate-200 dark:border-slate-800 print:hidden gap-2">
           <div className="flex items-center gap-2">
             <Printer className="w-5 h-5 text-red-600" />
             <h2 className="text-base font-black text-slate-900 dark:text-white uppercase">
-              Print Official Invoice
+              Official Invoice & Print Studio
             </h2>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handlePrintImage}
+              disabled={isGeneratingImage}
+              className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl transition-colors flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50"
+              title="Convert invoice to pristine image and print"
+            >
+              <ImageIcon className="w-4 h-4" />
+              <span>{isGeneratingImage ? 'Generating Image...' : 'Print Image'}</span>
+            </button>
+
+            <button
+              onClick={handleDownloadImage}
+              disabled={isGeneratingImage}
+              className="px-3.5 py-2 bg-slate-900 hover:bg-black text-white dark:bg-white dark:text-slate-900 font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
+              title="Download invoice PNG image"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download PNG</span>
+            </button>
+
             <button
               onClick={handlePrint}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl transition-colors flex items-center gap-1.5 shadow-md cursor-pointer"
+              className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+              title="Standard Browser Print"
             >
               <Printer className="w-4 h-4" />
-              <span>Print Invoice</span>
+              <span>Browser Print</span>
             </button>
 
             <button
@@ -51,23 +143,23 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
         </div>
 
         {/* --- PRINTABLE INVOICE TEMPLATE --- */}
-        <div className="printable-invoice bg-white text-slate-900 p-6 sm:p-8 rounded-xl border border-slate-200 shadow-xs font-sans text-xs">
+        <div ref={invoiceRef} className="printable-invoice bg-white text-slate-900 p-6 sm:p-8 rounded-xl border border-slate-200 shadow-xs font-sans text-xs">
           
           {/* Header Brand Block */}
           <div className="flex justify-between items-start pb-6 border-b-2 border-red-600 mb-6">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <div className="w-8 h-8 rounded-full bg-red-600 flex items-center justify-center text-white font-black text-base">
+                <div className="w-8 h-8 rounded-full bg-red-600 flex items-center justify-center text-white font-black text-base shadow-sm">
                   S
                 </div>
                 <h1 className="text-2xl font-black tracking-tight text-red-600 uppercase">
                   Smart Solution BD
                 </h1>
               </div>
-              <p className="text-[11px] text-slate-500">
-                Premium Smartwatches, ANC Earbuds & Tech Accessories
+              <p className="text-[11px] text-slate-500 font-medium">
+                Premium Smartwatches, ANC Earbuds & Tech Accessories in Bangladesh
               </p>
-              <p className="text-[11px] text-slate-500 mt-1">
+              <p className="text-[11px] text-slate-500 mt-1 font-mono">
                 Hotline: {storeSettings.hotline} | Email: {storeSettings.email}
               </p>
             </div>
@@ -82,7 +174,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
               <span className="text-[11px] text-slate-500 block">
                 Date: {new Date(order.date).toLocaleDateString()}
               </span>
-              <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-slate-100 text-slate-800 mt-1 border border-slate-200">
+              <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-red-50 text-red-700 mt-1 border border-red-200">
                 {order.status}
               </span>
             </div>
@@ -138,7 +230,8 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
                         <img
                           src={item.product.image}
                           alt={item.product.name}
-                          className="w-10 h-10 object-contain rounded border border-slate-200 p-0.5 print:block"
+                          className="w-10 h-10 object-contain rounded border border-slate-200 p-0.5 bg-white"
+                          crossOrigin="anonymous"
                           onError={(e) => {
                             (e.target as HTMLImageElement).src =
                               'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=400&q=80';
@@ -190,7 +283,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
           <div className="pt-8 border-t border-slate-300 flex justify-between items-end text-[10px] text-slate-500">
             <div>
               <p className="font-bold text-slate-700">Thank you for shopping with Smart Solution BD!</p>
-              <p>For support or returns, visit https://smartsolutionbd.github.io</p>
+              <p>For support or returns, visit https://raiyan01230.github.io/Smart-Solution-BD/</p>
             </div>
 
             <div className="text-center">
