@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://raiyan01230.github.io/Smart-Solution-BD/sitemap.xml
