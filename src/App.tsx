@@ -8,7 +8,7 @@ import { CartDrawer, CartItem } from './components/CartDrawer';
 import { WhatsAppButton } from './components/WhatsAppButton';
 import { Footer } from './components/Footer';
 
-import { Product } from './data/products';
+import { Product, PRODUCTS as DEFAULT_PRODUCTS } from './data/products';
 import {
   fetchProducts,
   fetchPromoCodes,
@@ -16,7 +16,10 @@ import {
   fetchCategories,
   PromoCode,
   StoreSettings,
-  CategoryItem
+  CategoryItem,
+  DEFAULT_CATEGORIES,
+  DEFAULT_PROMOS,
+  DEFAULT_SETTINGS
 } from './services/dbService';
 
 import { useTheme } from './hooks/useTheme';
@@ -37,23 +40,49 @@ export default function App() {
   const { isDark, toggleTheme } = useTheme();
   const { route, navigate } = useHashRoute();
 
-  // Storefront Data
-  const [products, setProducts] = useState<Product[]>([]);
-  const [availablePromos, setAvailablePromos] = useState<PromoCode[]>([]);
-  const [categories, setCategories] = useState<CategoryItem[]>([]);
-  const [storeSettings, setStoreSettings] = useState<StoreSettings>({
-    inside_dhaka_fee: 70,
-    outside_dhaka_fee: 120,
-    store_name: 'Smart Solution BD',
-    whatsapp_number: '8801700000000',
-    hotline: '+880 1700-000000',
-    email: 'support@smartsolutionbd.com',
-    facebook_url: 'https://www.facebook.com/profile.php?id=61594778919594',
-    about_title: 'Best Gadget Shop in Bangladesh',
-    about_p1: 'Welcome to Smart Solution BD, the most trusted destination for original smartwatches in BD. We provide the latest tech gear, including Kieslect, Amazfit, Huawei, and premium ANC earbuds. Our goal is to ensure you get 100% authentic products with official warranty.',
-    about_p2: 'Looking for the best smartwatch price in Bangladesh 2026? We offer competitive pricing, fast home delivery, and a seamless shopping experience. Whether you need gaming headphones or waterproof fitness trackers, our catalog is updated daily.',
-    maintenance_mode: false,
-    maintenance_message: 'Smart Solution BD is currently undergoing scheduled system updates. We will be back online shortly!',
+  // Instant State Initialization (Zero-Wait Local Hydration)
+  const [products, setProducts] = useState<Product[]>(() => {
+    try {
+      const local = localStorage.getItem('smart_products');
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return DEFAULT_PRODUCTS;
+  });
+
+  const [categories, setCategories] = useState<CategoryItem[]>(() => {
+    try {
+      const local = localStorage.getItem('smart_categories');
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return DEFAULT_CATEGORIES;
+  });
+
+  const [availablePromos, setAvailablePromos] = useState<PromoCode[]>(() => {
+    try {
+      const local = localStorage.getItem('smart_promos');
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return DEFAULT_PROMOS;
+  });
+
+  const [storeSettings, setStoreSettings] = useState<StoreSettings>(() => {
+    try {
+      const local = localStorage.getItem('smart_settings');
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch {}
+    return DEFAULT_SETTINGS;
   });
 
   const [selectedCategory, setSelectedCategory] = useState<string>('All Products');
@@ -61,7 +90,7 @@ export default function App() {
   const [selectedProductModal, setSelectedProductModal] = useState<Product | null>(null);
   const [isCartDrawerOpen, setIsCartDrawerOpen] = useState<boolean>(false);
 
-  // Cart State persistent in localStorage (Defensive parsing)
+  // Cart State persistent in localStorage
   const [cartItems, setCartItems] = useState<CartItem[]>(() => {
     try {
       const saved = localStorage.getItem('smart_cart') || localStorage.getItem('shm_cart') || localStorage.getItem('ssbd_cart');
@@ -83,40 +112,54 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem('smart_cart', JSON.stringify(cartItems));
+    try {
+      localStorage.setItem('smart_cart', JSON.stringify(cartItems));
+    } catch {}
   }, [cartItems]);
 
   useEffect(() => {
-    if (appliedPromo) {
-      localStorage.setItem('smart_applied_promo', JSON.stringify(appliedPromo));
-    } else {
-      localStorage.removeItem('smart_applied_promo');
-    }
+    try {
+      if (appliedPromo) {
+        localStorage.setItem('smart_applied_promo', JSON.stringify(appliedPromo));
+      } else {
+        localStorage.removeItem('smart_applied_promo');
+      }
+    } catch {}
   }, [appliedPromo]);
 
-  // Initial Data Load
+  // Background Data Sync (Stale-While-Revalidate - does not block initial load)
   useEffect(() => {
-    async function initData() {
-      const [pData, prData, stData, catData] = await Promise.all([
-        fetchProducts(),
-        fetchPromoCodes(),
-        fetchStoreSettings(),
-        fetchCategories(),
-      ]);
-      setProducts(Array.isArray(pData) ? pData : []);
-      setAvailablePromos(Array.isArray(prData) ? prData : []);
-      if (stData) setStoreSettings(stData);
-      setCategories(Array.isArray(catData) ? catData : []);
+    let isMounted = true;
+    async function syncData() {
+      try {
+        const [pData, prData, stData, catData] = await Promise.all([
+          fetchProducts(),
+          fetchPromoCodes(),
+          fetchStoreSettings(),
+          fetchCategories(),
+        ]);
+        if (!isMounted) return;
+        if (Array.isArray(pData) && pData.length > 0) setProducts(pData);
+        if (Array.isArray(prData) && prData.length > 0) setAvailablePromos(prData);
+        if (stData) setStoreSettings(stData);
+        if (Array.isArray(catData) && catData.length > 0) setCategories(catData);
+      } catch (err) {
+        console.warn('Background sync completed with fallbacks:', err);
+      }
     }
-    initData();
+    syncData();
 
-    async function updateCats() {
-      const catData = await fetchCategories();
-      setCategories(Array.isArray(catData) ? catData : []);
-    }
+    const handleDataUpdate = () => {
+      syncData();
+    };
 
-    window.addEventListener('categories_updated', updateCats);
-    return () => window.removeEventListener('categories_updated', updateCats);
+    window.addEventListener('categories_updated', handleDataUpdate);
+    window.addEventListener('products_updated', handleDataUpdate);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('categories_updated', handleDataUpdate);
+      window.removeEventListener('products_updated', handleDataUpdate);
+    };
   }, []);
 
   const categoryNames = useMemo(() => {
@@ -276,7 +319,7 @@ export default function App() {
               categories={categoryNames}
             />
 
-            {/* FLASH DEALS (Visible on All Products view with no search filter) */}
+            {/* FLASH DEALS */}
             {selectedCategory === 'All Products' && !searchQuery && (
               <FlashDeals
                 products={products}
@@ -301,7 +344,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans selection:bg-red-500 selection:text-white transition-colors duration-200 flex flex-col justify-between">
-      
       <div>
         {/* Header */}
         <Header
@@ -326,7 +368,7 @@ export default function App() {
       {/* Floating WhatsApp Action Button */}
       <WhatsAppButton />
 
-      {/* Quick Product Detail Modal (for quick preview) */}
+      {/* Quick Product Detail Modal */}
       <ProductModal
         product={selectedProductModal}
         onClose={() => setSelectedProductModal(null)}
@@ -346,7 +388,6 @@ export default function App() {
           navigate('/checkout');
         }}
       />
-
     </div>
   );
 }
