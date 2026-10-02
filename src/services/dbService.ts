@@ -558,6 +558,26 @@ export async function updateOrderStatus(
     } catch (e) {}
   }
 
+  window.dispatchEvent(new Event('orders_updated'));
+  return true;
+}
+
+export async function deleteOrder(orderId: string): Promise<boolean> {
+  const current = await fetchOrders();
+  const updated = current.filter((o) => String(o.id).trim() !== String(orderId).trim());
+  try {
+    localStorage.setItem('smart_orders', JSON.stringify(updated));
+  } catch {}
+
+  if (IS_SUPABASE_CONFIGURED && supabase) {
+    try {
+      await supabase.from('orders').delete().eq('id', orderId);
+    } catch (e) {
+      console.error('Delete order error in Supabase:', e);
+    }
+  }
+
+  window.dispatchEvent(new Event('orders_updated'));
   return true;
 }
 

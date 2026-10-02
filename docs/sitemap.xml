@@ -1,28 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://smartsolutionbd.github.io/</loc>
-    <lastmod>2026-10-[DATE]</lastmod>
+    <loc>https://raiyan01230.github.io/Smart-Solution-BD/</loc>
+    <lastmod>2026-10-02</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://smartsolutionbd.github.io/#/about</loc>
+    <loc>https://raiyan01230.github.io/Smart-Solution-BD/#/about</loc>
+    <lastmod>2026-10-02</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://smartsolutionbd.github.io/#/contact</loc>
+    <loc>https://raiyan01230.github.io/Smart-Solution-BD/#/contact</loc>
+    <lastmod>2026-10-02</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://smartsolutionbd.github.io/#/faq</loc>
+    <loc>https://raiyan01230.github.io/Smart-Solution-BD/#/faq</loc>
+    <lastmod>2026-10-02</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://smartsolutionbd.github.io/#/track</loc>
+    <loc>https://raiyan01230.github.io/Smart-Solution-BD/#/track</loc>
+    <lastmod>2026-10-02</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>

@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://smartsolutionbd.github.io/sitemap.xml
+Sitemap: https://raiyan01230.github.io/Smart-Solution-BD/sitemap.xml
