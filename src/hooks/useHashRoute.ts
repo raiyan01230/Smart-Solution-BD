@@ -6,20 +6,28 @@ export interface RouteState {
 }
 
 function parseHash(): RouteState {
-  const hash = window.location.hash.replace(/^#/, '') || '/';
-  
-  // Example matching: /product/p1 or /track/SSBD-1024
-  const productMatch = hash.match(/^\/product\/(.+)$/);
-  if (productMatch) {
-    return { path: '/product', params: { id: decodeURIComponent(productMatch[1]) } };
-  }
+  try {
+    const rawHash = (typeof window !== 'undefined' ? window.location.hash : '') || '';
+    let hash = rawHash.replace(/^#/, '').split('?')[0].trim();
+    if (!hash || hash === '') hash = '/';
+    if (!hash.startsWith('/')) hash = '/' + hash;
 
-  const trackMatch = hash.match(/^\/track\/(.+)$/);
-  if (trackMatch) {
-    return { path: '/track', params: { id: decodeURIComponent(trackMatch[1]) } };
-  }
+    // Example matching: /product/p1 or /track/SSBD-1024
+    const productMatch = hash.match(/^\/product\/(.+)$/);
+    if (productMatch) {
+      return { path: '/product', params: { id: decodeURIComponent(productMatch[1]) } };
+    }
 
-  return { path: hash, params: {} };
+    const trackMatch = hash.match(/^\/track\/(.+)$/);
+    if (trackMatch) {
+      return { path: '/track', params: { id: decodeURIComponent(trackMatch[1]) } };
+    }
+
+    return { path: hash, params: {} };
+  } catch (err) {
+    console.error('Error parsing route hash:', err);
+    return { path: '/', params: {} };
+  }
 }
 
 export function useHashRoute() {
@@ -36,7 +44,11 @@ export function useHashRoute() {
   }, []);
 
   const navigate = (newPath: string) => {
-    window.location.hash = newPath;
+    try {
+      window.location.hash = newPath;
+    } catch (e) {
+      console.error('Navigation error:', e);
+    }
   };
 
   return { route, navigate };
