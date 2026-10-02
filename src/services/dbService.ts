@@ -1,5 +1,6 @@
 import { supabase, IS_SUPABASE_CONFIGURED } from '../lib/supabase';
 import { Product, PRODUCTS as DEFAULT_PRODUCTS } from '../data/products';
+import { uploadToSupabaseStorage, processComputerImage } from '../utils/imageHelper';
 
 export interface Order {
   id: string;
@@ -141,10 +142,10 @@ function withTimeout<T>(promise: Promise<T>, ms = 1500): Promise<T> {
 // --- CATEGORIES API ---
 export async function fetchCategories(): Promise<CategoryItem[]> {
   const local = typeof localStorage !== 'undefined' ? localStorage.getItem('smart_categories') : null;
-  if (local) {
+  if (local !== null) {
     try {
       const parsed = JSON.parse(local);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed;
       }
     } catch (e) {
@@ -155,7 +156,7 @@ export async function fetchCategories(): Promise<CategoryItem[]> {
   if (IS_SUPABASE_CONFIGURED && supabase) {
     try {
       const { data, error } = await withTimeout(supabase.from('categories').select('*').order('name'), 1500);
-      if (!error && data && data.length > 0) {
+      if (!error && data) {
         const mapped = data.map((c) => ({
           id: c.id,
           name: c.name,
@@ -563,17 +564,17 @@ export async function updateOrderStatus(
 // --- PROMO CODES API ---
 export async function fetchPromoCodes(): Promise<PromoCode[]> {
   const local = typeof localStorage !== 'undefined' ? localStorage.getItem('smart_promos') : null;
-  if (local) {
+  if (local !== null) {
     try {
       const parsed = JSON.parse(local);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) return parsed;
     } catch {}
   }
 
   if (IS_SUPABASE_CONFIGURED && supabase) {
     try {
       const { data, error } = await withTimeout(supabase.from('promo_codes').select('*'), 1500);
-      if (!error && data && data.length > 0) {
+      if (!error && data) {
         const mapped = data.map((p) => ({
           id: p.id,
           code: p.code,
@@ -646,10 +647,10 @@ export async function deletePromoCode(id: string): Promise<boolean> {
 // --- ADVERTISEMENTS API ---
 export async function fetchAdvertisements(): Promise<Advertisement[]> {
   const local = typeof localStorage !== 'undefined' ? localStorage.getItem('smart_ads') : null;
-  if (local) {
+  if (local !== null) {
     try {
       const parsed = JSON.parse(local);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) return parsed;
     } catch {}
   }
 
@@ -703,27 +704,7 @@ export async function saveStoreSettings(settings: StoreSettings): Promise<boolea
 
 // --- IMAGE UPLOAD TO SUPABASE STORAGE ---
 export async function uploadImageToSupabase(file: File): Promise<string | null> {
-  if (!IS_SUPABASE_CONFIGURED || !supabase) {
-    return URL.createObjectURL(file);
-  }
-
-  try {
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-    const filePath = `products/${fileName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('product-images')
-      .upload(filePath, file);
-
-    if (uploadError) return null;
-
-    const { data } = supabase.storage
-      .from('product-images')
-      .getPublicUrl(filePath);
-
-    return data.publicUrl;
-  } catch (e) {
-    return null;
-  }
+  const url = await uploadToSupabaseStorage(file);
+  if (url) return url;
+  return processComputerImage(file);
 }

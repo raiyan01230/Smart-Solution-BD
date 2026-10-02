@@ -19,12 +19,12 @@ import {
   SUPABASE_ANON_KEY
 } from '../lib/supabase';
 import { InvoicePrintModal } from '../components/InvoicePrintModal';
-import { processMultipleComputerImages, processComputerImage } from '../utils/imageHelper';
+import { processMultipleComputerImages, processComputerImage, isSupabaseStorageUrl } from '../utils/imageHelper';
 import {
   Shield, Package, ShoppingBag, Tag, Settings, LogOut,
   Plus, Edit, Trash2, Search, Upload, CheckCircle2, AlertCircle, RefreshCw, Key,
   BarChart2, Image, Layers, Wrench, Phone, MessageCircle, Printer, Eye, Lock, Copy, Check, X,
-  Database, Globe, ArrowUpRight, FolderUp, Star
+  Database, Globe, ArrowUpRight, FolderUp, Star, Cloud
 } from 'lucide-react';
 
 export const AdminPage: React.FC<{ navigate: (path: string) => void }> = ({ navigate }) => {
@@ -1542,7 +1542,17 @@ ALTER TABLE public.promo_codes ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public all products" ON public.products FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all categories" ON public.categories FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all orders" ON public.orders FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow public all promo_codes" ON public.promo_codes FOR ALL USING (true) WITH CHECK (true);`;
+CREATE POLICY "Allow public all promo_codes" ON public.promo_codes FOR ALL USING (true) WITH CHECK (true);
+
+-- 6. Supabase Storage Bucket for Product Images
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('product-images', 'product-images', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+CREATE POLICY "Allow public all storage on product-images"
+ON storage.objects FOR ALL
+USING (bucket_id = 'product-images')
+WITH CHECK (bucket_id = 'product-images');`;
 
                   navigator.clipboard.writeText(sqlScript);
                   setCopiedSql(true);
@@ -1616,7 +1626,11 @@ ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public all products" ON public.products FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all categories" ON public.categories FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow public all orders" ON public.orders FOR ALL USING (true) WITH CHECK (true);`}
+CREATE POLICY "Allow public all orders" ON public.orders FOR ALL USING (true) WITH CHECK (true);
+
+-- 5. Create Storage Bucket for Product Images
+INSERT INTO storage.buckets (id, name, public) VALUES ('product-images', 'product-images', true) ON CONFLICT (id) DO UPDATE SET public = true;
+CREATE POLICY "Allow public all storage on product-images" ON storage.objects FOR ALL USING (bucket_id = 'product-images') WITH CHECK (bucket_id = 'product-images');`}
               </pre>
             </div>
           </div>
@@ -1834,15 +1848,29 @@ CREATE POLICY "Allow public all orders" ON public.orders FOR ALL USING (true) WI
                 />
               </div>
 
-              {/* MULTI-IMAGE GALLERY UPLOADER FROM COMPUTER */}
+              {/* MULTI-IMAGE GALLERY UPLOADER FROM COMPUTER & SUPABASE STORAGE */}
               <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
-                <div className="flex justify-between items-center">
+                <div className="flex flex-wrap justify-between items-center gap-2">
                   <div>
-                    <label className="block font-black text-slate-900 dark:text-white uppercase text-xs">
-                      Product Photos (Select from Computer)
-                    </label>
-                    <p className="text-[11px] text-slate-500">
-                      Upload directly from your PC. Click "Set as Cover" on any photo to make it the primary display image.
+                    <div className="flex items-center gap-2">
+                      <label className="block font-black text-slate-900 dark:text-white uppercase text-xs">
+                        Product Photos
+                      </label>
+                      {IS_SUPABASE_CONFIGURED ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-xs">
+                          <Cloud className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                          <span>Supabase Storage Connected</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                          <span>Local Mode (Connect Supabase for Cloud Storage)</span>
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      {IS_SUPABASE_CONFIGURED
+                        ? 'Photos uploaded from your PC will be uploaded and stored directly in your Supabase "product-images" Storage bucket.'
+                        : 'Upload directly from PC. Tip: Link your Supabase project in Database tab to save photos on Supabase Cloud Storage.'}
                     </p>
                   </div>
                   <span className="text-xs font-mono font-bold text-red-600 bg-red-50 dark:bg-red-950/60 px-2 py-1 rounded-lg">
@@ -1889,6 +1917,16 @@ CREATE POLICY "Allow public all orders" ON public.orders FOR ALL USING (true) WI
                           </button>
                         )}
 
+                        {/* Supabase Storage Cloud indicator */}
+                        {isSupabaseStorageUrl(imgUrl) && (
+                          <span
+                            className="absolute top-1.5 right-6 bg-slate-900/80 text-emerald-400 p-0.5 rounded shadow-xs"
+                            title="Stored in Supabase Cloud Storage bucket"
+                          >
+                            <Cloud className="w-3 h-3" />
+                          </span>
+                        )}
+
                         {/* Remove Image Button */}
                         <button
                           type="button"
@@ -1929,7 +1967,7 @@ CREATE POLICY "Allow public all orders" ON public.orders FOR ALL USING (true) WI
                     {uploadingImage ? (
                       <div className="flex items-center gap-2 text-red-600 font-bold py-2 text-xs">
                         <RefreshCw className="w-5 h-5 animate-spin" />
-                        <span>Processing & Optimizing photos from computer...</span>
+                        <span>Uploading & optimizing photo for Supabase Storage...</span>
                       </div>
                     ) : (
                       <>
@@ -1940,7 +1978,9 @@ CREATE POLICY "Allow public all orders" ON public.orders FOR ALL USING (true) WI
                           Select Photos from Computer
                         </span>
                         <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                          Click to browse PC files or Drag & Drop here (Hold Shift or Ctrl to select multiple pictures)
+                          {IS_SUPABASE_CONFIGURED
+                            ? 'Upload directly to your Supabase Cloud Storage bucket (Hold Shift or Ctrl to select multiple pictures)'
+                            : 'Click to browse PC files or Drag & Drop here (Hold Shift or Ctrl to select multiple pictures)'}
                         </span>
                       </>
                     )}

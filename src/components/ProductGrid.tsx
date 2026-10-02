@@ -39,10 +39,12 @@ export const ProductGrid: React.FC<ProductGridProps> = ({
         <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 max-w-md mx-auto">
           <PackageSearch className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
           <h3 className="text-base font-bold text-slate-800 dark:text-slate-200 mb-1">
-            No gadgets found
+            {searchQuery ? 'No gadgets found' : 'No products available'}
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            We couldn't find anything matching "{searchQuery}". Try searching for earbuds, watch, microphone, or neckband.
+            {searchQuery
+              ? `We couldn't find anything matching "${searchQuery}". Try searching for earbuds, watch, microphone, or neckband.`
+              : 'There are currently no products in this section. New gadgets will be available soon!'}
           </p>
         </div>
       ) : (

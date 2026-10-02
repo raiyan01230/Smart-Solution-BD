@@ -44,9 +44,9 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>(() => {
     try {
       const local = typeof localStorage !== 'undefined' ? localStorage.getItem('smart_products') : null;
-      if (local) {
+      if (local !== null) {
         const parsed = JSON.parse(local);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch {}
     return DEFAULT_PRODUCTS;
@@ -55,9 +55,9 @@ export default function App() {
   const [categories, setCategories] = useState<CategoryItem[]>(() => {
     try {
       const local = typeof localStorage !== 'undefined' ? localStorage.getItem('smart_categories') : null;
-      if (local) {
+      if (local !== null) {
         const parsed = JSON.parse(local);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch {}
     return DEFAULT_CATEGORIES;
@@ -66,9 +66,9 @@ export default function App() {
   const [availablePromos, setAvailablePromos] = useState<PromoCode[]>(() => {
     try {
       const local = typeof localStorage !== 'undefined' ? localStorage.getItem('smart_promos') : null;
-      if (local) {
+      if (local !== null) {
         const parsed = JSON.parse(local);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch {}
     return DEFAULT_PROMOS;
@@ -139,10 +139,10 @@ export default function App() {
           fetchCategories(),
         ]);
         if (!isMounted) return;
-        if (Array.isArray(pData) && pData.length > 0) setProducts(pData);
-        if (Array.isArray(prData) && prData.length > 0) setAvailablePromos(prData);
+        if (Array.isArray(pData)) setProducts(pData);
+        if (Array.isArray(prData)) setAvailablePromos(prData);
         if (stData) setStoreSettings(stData);
-        if (Array.isArray(catData) && catData.length > 0) setCategories(catData);
+        if (Array.isArray(catData)) setCategories(catData);
       } catch (err) {
         console.warn('Background sync completed with fallbacks:', err);
       }
@@ -153,12 +153,25 @@ export default function App() {
       syncData();
     };
 
+    const handleStorageUpdate = (e: StorageEvent) => {
+      if (
+        e.key === 'smart_products' ||
+        e.key === 'smart_categories' ||
+        e.key === 'smart_promos' ||
+        e.key === 'smart_settings'
+      ) {
+        syncData();
+      }
+    };
+
     window.addEventListener('categories_updated', handleDataUpdate);
     window.addEventListener('products_updated', handleDataUpdate);
+    window.addEventListener('storage', handleStorageUpdate);
     return () => {
       isMounted = false;
       window.removeEventListener('categories_updated', handleDataUpdate);
       window.removeEventListener('products_updated', handleDataUpdate);
+      window.removeEventListener('storage', handleStorageUpdate);
     };
   }, []);
 

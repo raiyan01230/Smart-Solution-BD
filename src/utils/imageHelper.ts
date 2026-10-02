@@ -2,15 +2,20 @@ import { supabase, IS_SUPABASE_CONFIGURED } from '../lib/supabase';
 
 /**
  * Resizes and compresses an image file on the client using HTML5 Canvas.
- * Generates an optimized JPEG/WebP Base64 data URL.
+ * Generates an optimized Blob for uploading to Supabase Storage and a Base64 data URL.
  */
-export async function compressImageFile(file: File, maxWidth = 1200, maxHeight = 1200, quality = 0.85): Promise<string> {
+export async function compressImageToBlob(
+  file: File,
+  maxWidth = 1200,
+  maxHeight = 1200,
+  quality = 0.85
+): Promise<{ blob: Blob; dataUrl: string }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('Failed to read image file'));
     reader.onload = (e) => {
       const img = new window.Image();
-      img.onerror = () => reject(new Error('Failed to load image data'));
+      img.onerror = () => reject(new Error('Failed to load image'));
       img.onload = () => {
         let width = img.width;
         let height = img.height;
@@ -34,7 +39,7 @@ export async function compressImageFile(file: File, maxWidth = 1200, maxHeight =
 
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          resolve(e.target?.result as string);
+          resolve({ blob: file, dataUrl: e.target?.result as string });
           return;
         }
 
@@ -43,9 +48,14 @@ export async function compressImageFile(file: File, maxWidth = 1200, maxHeight =
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Convert to optimized data URL
         const dataUrl = canvas.toDataURL('image/jpeg', quality);
-        resolve(dataUrl);
+        canvas.toBlob(
+          (blob) => {
+            resolve({ blob: blob || file, dataUrl });
+          },
+          'image/jpeg',
+          quality
+        );
       };
       img.src = e.target?.result as string;
     };
@@ -54,40 +64,85 @@ export async function compressImageFile(file: File, maxWidth = 1200, maxHeight =
 }
 
 /**
- * Uploads a file from the user's computer.
- * If Supabase Storage is configured and accessible, uploads to cloud bucket.
- * Otherwise, seamlessly falls back to the compressed base64 data URL so upload never fails.
+ * Uploads an image file directly to Supabase Storage bucket ('product-images').
+ * Returns the public CDN URL from Supabase Storage, or null if upload fails.
  */
-export async function processComputerImage(file: File): Promise<string> {
-  const compressedDataUrl = await compressImageFile(file);
+export async function uploadToSupabaseStorage(file: File): Promise<string | null> {
+  if (!IS_SUPABASE_CONFIGURED || !supabase) return null;
 
-  // If Supabase is configured, attempt cloud bucket upload
-  if (IS_SUPABASE_CONFIGURED && supabase) {
-    try {
-      const fileExt = file.name.split('.').pop() || 'jpg';
-      const cleanFileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
-      const filePath = `products/${cleanFileName}`;
+  try {
+    const { blob } = await compressImageToBlob(file);
+    const cleanFileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.jpg`;
+    const filePath = `products/${cleanFileName}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from('product-images')
-        .upload(filePath, file, {
-          cacheControl: '3600',
+    // Target bucket for product images
+    let targetBucket = 'product-images';
+    let { error: uploadError } = await supabase.storage
+      .from(targetBucket)
+      .upload(filePath, blob, {
+        contentType: 'image/jpeg',
+        cacheControl: '31536000',
+        upsert: true,
+      });
+
+    // If bucket doesn't exist yet, attempt to create it with public access enabled
+    if (uploadError) {
+      console.warn(`Initial upload to bucket "${targetBucket}" failed:`, uploadError.message);
+      try {
+        await supabase.storage.createBucket('product-images', { public: true });
+        const retry = await supabase.storage.from(targetBucket).upload(filePath, blob, {
+          contentType: 'image/jpeg',
+          cacheControl: '31536000',
           upsert: true,
         });
-
-      if (!uploadError) {
-        const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
-        if (data?.publicUrl) {
-          return data.publicUrl;
-        }
+        uploadError = retry.error;
+      } catch (err) {
+        console.warn('Failed to auto-create bucket:', err);
       }
-    } catch {
-      // Fallback silently to compressed data URL
+
+      // If still error, try fallback bucket 'products'
+      if (uploadError) {
+        targetBucket = 'products';
+        const fallback = await supabase.storage.from(targetBucket).upload(filePath, blob, {
+          contentType: 'image/jpeg',
+          cacheControl: '31536000',
+          upsert: true,
+        });
+        uploadError = fallback.error;
+      }
+    }
+
+    if (!uploadError) {
+      const { data } = supabase.storage.from(targetBucket).getPublicUrl(filePath);
+      if (data?.publicUrl) {
+        return data.publicUrl;
+      }
+    } else {
+      console.error('Supabase Storage upload returned error:', uploadError);
+    }
+  } catch (err) {
+    console.error('Supabase Storage upload exception:', err);
+  }
+
+  return null;
+}
+
+/**
+ * Processes an image from the computer:
+ * 1. If Supabase is connected, uploads directly to Supabase Storage and returns the public CDN URL.
+ * 2. If Supabase is not connected, safely falls back to optimized Base64 so nothing breaks.
+ */
+export async function processComputerImage(file: File): Promise<string> {
+  if (IS_SUPABASE_CONFIGURED && supabase) {
+    const supabaseUrl = await uploadToSupabaseStorage(file);
+    if (supabaseUrl) {
+      return supabaseUrl;
     }
   }
 
-  // Returns compressed Data URL (reliable, works everywhere including GitHub Pages)
-  return compressedDataUrl;
+  // Fallback to optimized data URL so process never breaks
+  const { dataUrl } = await compressImageToBlob(file);
+  return dataUrl;
 }
 
 /**
@@ -97,4 +152,12 @@ export async function processMultipleComputerImages(files: FileList | File[]): P
   const fileArray = Array.from(files).filter((f) => f.type.startsWith('image/'));
   const uploadPromises = fileArray.slice(0, 10).map((file) => processComputerImage(file));
   return Promise.all(uploadPromises);
+}
+
+/**
+ * Checks if an image URL is hosted on Supabase Storage.
+ */
+export function isSupabaseStorageUrl(url: string): boolean {
+  if (!url) return false;
+  return url.includes('supabase.co/storage') || url.includes('/storage/v1/object/public/');
 }
