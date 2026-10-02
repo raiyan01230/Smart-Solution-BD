@@ -277,10 +277,10 @@ export async function deleteCategory(id: string, name?: string): Promise<boolean
 export async function fetchProducts(): Promise<Product[]> {
   const local = typeof localStorage !== 'undefined' ? localStorage.getItem('smart_products') : null;
   let cached: Product[] | null = null;
-  if (local) {
+  if (local !== null) {
     try {
       const parsed = JSON.parse(local);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         cached = parsed;
       }
     } catch {}
@@ -290,12 +290,12 @@ export async function fetchProducts(): Promise<Product[]> {
     try {
       const { data, error } = await withTimeout(
         supabase.from('products').select('*').order('created_at', { ascending: false }),
-        1500
+        2000
       );
 
-      if (!error && data && data.length > 0) {
+      if (!error && data) {
         const mapped = data.map((item) => ({
-          id: item.id,
+          id: String(item.id),
           name: item.name,
           category: item.category,
           price: Number(item.price),
@@ -321,12 +321,19 @@ export async function fetchProducts(): Promise<Product[]> {
     }
   }
 
-  return cached || DEFAULT_PRODUCTS;
+  if (cached !== null) {
+    return cached;
+  }
+
+  try {
+    localStorage.setItem('smart_products', JSON.stringify(DEFAULT_PRODUCTS));
+  } catch {}
+  return DEFAULT_PRODUCTS;
 }
 
 export async function saveProduct(product: Product): Promise<boolean> {
   const current = await fetchProducts();
-  const idx = current.findIndex((p) => p.id === product.id);
+  const idx = current.findIndex((p) => String(p.id) === String(product.id));
   let updated: Product[];
   if (idx > -1) {
     updated = [...current];
@@ -372,7 +379,7 @@ export async function saveProduct(product: Product): Promise<boolean> {
 
 export async function deleteProduct(productId: string): Promise<boolean> {
   const current = await fetchProducts();
-  const updated = current.filter((p) => p.id !== productId);
+  const updated = current.filter((p) => String(p.id).trim() !== String(productId).trim());
   try {
     localStorage.setItem('smart_products', JSON.stringify(updated));
   } catch {}
@@ -387,6 +394,51 @@ export async function deleteProduct(productId: string): Promise<boolean> {
   }
 
   return true;
+}
+
+export async function resetProductsToDefault(): Promise<Product[]> {
+  try {
+    localStorage.setItem('smart_products', JSON.stringify(DEFAULT_PRODUCTS));
+  } catch {}
+  window.dispatchEvent(new Event('products_updated'));
+  return DEFAULT_PRODUCTS;
+}
+
+export async function syncAllProductsToSupabase(): Promise<{ success: boolean; count: number; error?: string }> {
+  if (!IS_SUPABASE_CONFIGURED || !supabase) {
+    return { success: false, count: 0, error: 'Supabase is not configured' };
+  }
+
+  try {
+    const products = await fetchProducts();
+    const rows = products.map((product) => ({
+      id: product.id,
+      name: product.name,
+      slug: product.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      category: product.category,
+      price: product.price,
+      original_price: product.originalPrice || null,
+      image: product.image,
+      images: product.images || [product.image],
+      is_flash_deal: product.isFlashDeal || false,
+      is_hot: product.isHot || false,
+      rating: product.rating || 4.8,
+      reviews_count: product.reviewsCount || 0,
+      in_stock: product.inStock,
+      stock_quantity: product.stock_quantity ?? 50,
+      description: product.description,
+      specs: product.specs || {},
+      updated_at: new Date().toISOString(),
+    }));
+
+    const { error } = await supabase.from('products').upsert(rows);
+    if (error) {
+      return { success: false, count: 0, error: error.message };
+    }
+    return { success: true, count: rows.length };
+  } catch (err: any) {
+    return { success: false, count: 0, error: err?.message || 'Sync failed' };
+  }
 }
 
 // --- ORDERS API ---

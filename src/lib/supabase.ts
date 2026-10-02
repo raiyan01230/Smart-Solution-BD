@@ -8,8 +8,8 @@ const getSupabaseConfig = () => {
     const localUrl = typeof localStorage !== 'undefined' ? localStorage.getItem('ssbd_supabase_url') : null;
     const localKey = typeof localStorage !== 'undefined' ? localStorage.getItem('ssbd_supabase_key') : null;
 
-    const url = localUrl || envUrl || '';
-    const key = localKey || envKey || '';
+    const url = (localUrl || envUrl || '').trim();
+    const key = (localKey || envKey || '').trim();
 
     // Verify URL validity
     let isValidUrl = false;
@@ -34,7 +34,11 @@ export const { url: SUPABASE_URL, key: SUPABASE_ANON_KEY, isConfigured: IS_SUPAB
 export const supabase: SupabaseClient | null = (() => {
   if (!IS_SUPABASE_CONFIGURED) return null;
   try {
-    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: false,
+      },
+    });
   } catch (e) {
     console.warn('Supabase client failed to initialize, running offline:', e);
     return null;
@@ -43,10 +47,43 @@ export const supabase: SupabaseClient | null = (() => {
 
 export const updateSupabaseCredentials = (url: string, key: string) => {
   try {
-    localStorage.setItem('ssbd_supabase_url', url);
-    localStorage.setItem('ssbd_supabase_key', key);
+    localStorage.setItem('ssbd_supabase_url', url.trim());
+    localStorage.setItem('ssbd_supabase_key', key.trim());
     window.location.reload();
   } catch (e) {
     console.error('Failed to update credentials:', e);
+  }
+};
+
+export const clearSupabaseCredentials = () => {
+  try {
+    localStorage.removeItem('ssbd_supabase_url');
+    localStorage.removeItem('ssbd_supabase_key');
+    window.location.reload();
+  } catch (e) {
+    console.error('Failed to clear credentials:', e);
+  }
+};
+
+export const testSupabaseConnection = async (testUrl: string, testKey: string): Promise<{ success: boolean; message: string }> => {
+  try {
+    const cleanUrl = testUrl.trim();
+    const cleanKey = testKey.trim();
+    new URL(cleanUrl);
+    const testClient = createClient(cleanUrl, cleanKey);
+    const { error } = await testClient.from('products').select('id').limit(1);
+    if (error) {
+      // Table doesn't exist yet, but credentials are valid!
+      if (error.code === '42P01' || error.message?.includes('relation "products" does not exist')) {
+        return {
+          success: true,
+          message: 'Connection successful! (Table "products" needs to be created. Use the 1-click SQL schema below).',
+        };
+      }
+      return { success: false, message: error.message };
+    }
+    return { success: true, message: 'Connection established and "products" table verified!' };
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Invalid Supabase URL or network connection failed' };
   }
 };

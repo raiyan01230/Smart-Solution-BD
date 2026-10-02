@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Search, Moon, Sun, ShoppingBag, PackageCheck, X } from 'lucide-react';
+import logoImg from '../assets/images/smart_solution_logo_1790921350794.jpg';
 
 interface HeaderProps {
   searchQuery: string;
@@ -41,11 +42,11 @@ export const Header: React.FC<HeaderProps> = ({
             className="flex items-center gap-2.5 shrink-0 group focus:outline-hidden cursor-pointer"
           >
             <img
-              src="/logo.png"
+              src={logoImg}
               alt={storeName}
               className="w-10 h-10 sm:w-11 sm:h-11 rounded-full object-cover border-2 border-amber-500/80 shadow-md group-hover:scale-105 transition-transform shrink-0"
               onError={(e) => {
-                (e.target as HTMLElement).style.display = 'none';
+                (e.target as HTMLImageElement).src = './logo.png';
               }}
             />
             <div className="flex flex-col">

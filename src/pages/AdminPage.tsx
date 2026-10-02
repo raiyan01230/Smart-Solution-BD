@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  fetchProducts, saveProduct, deleteProduct,
+  fetchProducts, saveProduct, deleteProduct, resetProductsToDefault, syncAllProductsToSupabase,
   fetchOrders, updateOrderStatus,
   fetchPromoCodes, savePromoCode,
   fetchAdvertisements, saveAdvertisement, deleteAdvertisement,
@@ -10,12 +10,20 @@ import {
   Order, PromoCode, Advertisement, StoreSettings, CategoryItem
 } from '../services/dbService';
 import { Product } from '../data/products';
-import { updateSupabaseCredentials, IS_SUPABASE_CONFIGURED } from '../lib/supabase';
+import {
+  updateSupabaseCredentials,
+  clearSupabaseCredentials,
+  testSupabaseConnection,
+  IS_SUPABASE_CONFIGURED,
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY
+} from '../lib/supabase';
 import { InvoicePrintModal } from '../components/InvoicePrintModal';
 import {
   Shield, Package, ShoppingBag, Tag, Settings, LogOut,
   Plus, Edit, Trash2, Search, Upload, CheckCircle2, AlertCircle, RefreshCw, Key,
-  BarChart2, Image, Layers, Wrench, Phone, MessageCircle, Printer, Eye, Lock, Copy, Check, X
+  BarChart2, Image, Layers, Wrench, Phone, MessageCircle, Printer, Eye, Lock, Copy, Check, X,
+  Database, Globe, ArrowUpRight
 } from 'lucide-react';
 
 export const AdminPage: React.FC<{ navigate: (path: string) => void }> = ({ navigate }) => {
@@ -27,12 +35,24 @@ export const AdminPage: React.FC<{ navigate: (path: string) => void }> = ({ navi
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // Active Tab across 12 Admin Sections
+  // Active Tab across 13 Admin Sections
   const [activeTab, setActiveTab] = useState<
     'overview' | 'products' | 'inventory' | 'orders' | 'promos' |
     'categories' | 'ads' | 'settings' | 'maintenance' | 'images' |
-    'info' | 'security'
+    'info' | 'security' | 'database'
   >('overview');
+
+  // Supabase Configuration Form State
+  const [supabaseUrlInput, setSupabaseUrlInput] = useState(SUPABASE_URL || '');
+  const [supabaseKeyInput, setSupabaseKeyInput] = useState(SUPABASE_ANON_KEY || '');
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [copiedSql, setCopiedSql] = useState(false);
+
+  // In-App Product Delete Confirmation Modal State
+  const [productToDelete, setProductToDelete] = useState<{ id: string; name: string } | null>(null);
 
   // Data State
   const [products, setProducts] = useState<Product[]>([]);
@@ -230,11 +250,62 @@ export const AdminPage: React.FC<{ navigate: (path: string) => void }> = ({ navi
     loadAdminData();
   };
 
-  const handleDeleteProduct = async (id: string) => {
-    if (confirm('Are you sure you want to delete this product?')) {
-      await deleteProduct(id);
-      loadAdminData();
+  // In-App Product Delete Handlers (No window.confirm)
+  const handleDeleteProductClick = (id: string, name: string) => {
+    setProductToDelete({ id, name });
+  };
+
+  const confirmDeleteProduct = async () => {
+    if (!productToDelete) return;
+    const { id } = productToDelete;
+    setProducts((prev) => prev.filter((p) => String(p.id).trim() !== String(id).trim()));
+    setProductToDelete(null);
+
+    await deleteProduct(id);
+    await loadAdminData();
+  };
+
+  // Supabase Dashboard Handlers
+  const handleTestSupabaseConnection = async () => {
+    if (!supabaseUrlInput.trim() || !supabaseKeyInput.trim()) {
+      setConnectionTestResult({ success: false, message: 'Please enter both Supabase Project URL and Anon Key.' });
+      return;
     }
+    setIsTestingConnection(true);
+    setConnectionTestResult(null);
+    const res = await testSupabaseConnection(supabaseUrlInput, supabaseKeyInput);
+    setIsTestingConnection(false);
+    setConnectionTestResult(res);
+  };
+
+  const handleSaveSupabase = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supabaseUrlInput.trim() || !supabaseKeyInput.trim()) return;
+    updateSupabaseCredentials(supabaseUrlInput.trim(), supabaseKeyInput.trim());
+  };
+
+  const handleDisconnectSupabase = () => {
+    clearSupabaseCredentials();
+  };
+
+  const handleSyncToSupabase = async () => {
+    setIsSyncing(true);
+    setSyncResult(null);
+    const res = await syncAllProductsToSupabase();
+    setIsSyncing(false);
+    if (res.success) {
+      setSyncResult({ success: true, message: `Successfully synced ${res.count} products to your cloud database!` });
+    } else {
+      setSyncResult({ success: false, message: res.error || 'Sync failed. Verify tables exist in Supabase.' });
+    }
+    setTimeout(() => setSyncResult(null), 5000);
+  };
+
+  const handleResetCatalog = async () => {
+    const res = await resetProductsToDefault();
+    setProducts(res);
+    setSyncResult({ success: true, message: 'Products restored to default demo catalog.' });
+    setTimeout(() => setSyncResult(null), 3500);
   };
 
   // Image File Upload to Supabase
@@ -416,13 +487,19 @@ export const AdminPage: React.FC<{ navigate: (path: string) => void }> = ({ navi
               <h1 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-tight">
                 Smart Solution BD Console
               </h1>
-              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                IS_SUPABASE_CONFIGURED
-                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-              }`}>
-                {IS_SUPABASE_CONFIGURED ? 'SUPABASE ACTIVE' : 'DEMO MODE'}
-              </span>
+              <button
+                type="button"
+                onClick={() => setActiveTab('database')}
+                className={`text-[10px] font-black px-2.5 py-1 rounded-full cursor-pointer transition-all flex items-center gap-1.5 ${
+                  IS_SUPABASE_CONFIGURED
+                    ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
+                    : 'bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-300'
+                }`}
+                title="Click to configure Cloud Supabase database"
+              >
+                <span className={`w-2 h-2 rounded-full ${IS_SUPABASE_CONFIGURED ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                <span>{IS_SUPABASE_CONFIGURED ? 'SUPABASE CLOUD ACTIVE' : 'LOCAL DEMO (CONNECT SUPABASE)'}</span>
+              </button>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Direct Route Management Dashboard (`/#/admin`)
@@ -439,10 +516,11 @@ export const AdminPage: React.FC<{ navigate: (path: string) => void }> = ({ navi
         </button>
       </div>
 
-      {/* 12 Admin Section Tabs */}
+      {/* 13 Admin Section Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar border-b border-slate-200 dark:border-slate-800">
         {[
           { id: 'overview', label: 'Overview', icon: BarChart2 },
+          { id: 'database', label: 'Cloud Supabase Database', icon: Database },
           { id: 'orders', label: `Orders (${orders.length})`, icon: ShoppingBag },
           { id: 'products', label: `Products (${products.length})`, icon: Package },
           { id: 'inventory', label: `Inventory (${lowStockCount} low)`, icon: AlertCircle },
@@ -752,8 +830,9 @@ export const AdminPage: React.FC<{ navigate: (path: string) => void }> = ({ navi
                     <Edit className="w-3.5 h-3.5" />
                   </button>
                   <button
-                    onClick={() => handleDeleteProduct(p.id)}
+                    onClick={() => handleDeleteProductClick(p.id, p.name)}
                     className="p-1.5 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-red-600 cursor-pointer"
+                    title="Delete Product"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -1160,6 +1239,399 @@ export const AdminPage: React.FC<{ navigate: (path: string) => void }> = ({ navi
               Update Admin Login Credentials
             </button>
           </form>
+        </div>
+      )}
+
+      {/* --- SECTION 13: CLOUD SUPABASE DATABASE & KEYS --- */}
+      {activeTab === 'database' && (
+        <div className="space-y-6">
+          {/* Header Card */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs">
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+                  <Database className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-tight">
+                    Supabase Cloud Database Settings
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Connect your free Supabase database directly from this website. No backend server or rebuild required!
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className={`px-3 py-1 rounded-full text-xs font-black flex items-center gap-1.5 ${
+                  IS_SUPABASE_CONFIGURED
+                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${IS_SUPABASE_CONFIGURED ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                  {IS_SUPABASE_CONFIGURED ? 'Active Cloud Database' : 'Local Browser Cache (Offline)'}
+                </span>
+              </div>
+            </div>
+
+            {/* Explanation banner */}
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 text-xs space-y-2 mb-6 text-slate-600 dark:text-slate-300">
+              <p className="font-semibold text-slate-900 dark:text-white">
+                💡 Why connect Supabase on GitHub Pages?
+              </p>
+              <p className="leading-relaxed">
+                GitHub Pages is a static host without a backend server. By connecting your Supabase project, all products you add, edit, or delete, as well as customer orders and promo codes, are stored in the cloud. Changes you make in this admin panel will immediately update for all customers nationwide!
+              </p>
+            </div>
+
+            {/* Credentials Form */}
+            <form onSubmit={handleSaveSupabase} className="space-y-4 max-w-2xl text-xs">
+              <div>
+                <label className="block font-bold text-slate-800 dark:text-slate-200 mb-1">
+                  Supabase Project URL
+                </label>
+                <div className="relative">
+                  <input
+                    type="url"
+                    required
+                    value={supabaseUrlInput}
+                    onChange={(e) => setSupabaseUrlInput(e.target.value)}
+                    placeholder="https://xxxxxxxxxxxxxxxxxxxx.supabase.co"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono text-xs focus:border-red-500 focus:outline-hidden"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Found in your Supabase Dashboard &rarr; Project Settings &rarr; API &rarr; Project URL
+                </p>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-800 dark:text-slate-200 mb-1">
+                  Supabase Anon (Public) Key
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={supabaseKeyInput}
+                  onChange={(e) => setSupabaseKeyInput(e.target.value)}
+                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6..."
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono text-[11px] focus:border-red-500 focus:outline-hidden resize-none"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Found in your Supabase Dashboard &rarr; Project Settings &rarr; API &rarr; Project API keys &rarr; "anon public"
+                </p>
+              </div>
+
+              {/* Test connection alert */}
+              {connectionTestResult && (
+                <div className={`p-3 rounded-xl border flex items-start gap-2 ${
+                  connectionTestResult.success
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                    : 'bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300 border-red-300 dark:border-red-800'
+                }`}>
+                  {connectionTestResult.success ? (
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 shrink-0 text-red-600 mt-0.5" />
+                  )}
+                  <span className="font-semibold text-xs leading-relaxed">{connectionTestResult.message}</span>
+                </div>
+              )}
+
+              {/* Form Action Buttons */}
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleTestSupabaseConnection}
+                  disabled={isTestingConnection}
+                  className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-2 border border-slate-200 dark:border-slate-700"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isTestingConnection ? 'animate-spin' : ''}`} />
+                  <span>{isTestingConnection ? 'Testing Connection...' : 'Test Connection'}</span>
+                </button>
+
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs uppercase tracking-wide rounded-xl transition-colors cursor-pointer shadow-md shadow-red-600/20"
+                >
+                  Save & Connect Database
+                </button>
+
+                {IS_SUPABASE_CONFIGURED && (
+                  <button
+                    type="button"
+                    onClick={handleDisconnectSupabase}
+                    className="px-4 py-2.5 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 font-bold text-xs rounded-xl transition-colors cursor-pointer border border-red-200 dark:border-red-900"
+                  >
+                    Disconnect & Switch to Local
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+
+          {/* Sync & Cloud Actions */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+            <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">
+              Data Synchronization & Seeding
+            </h3>
+            <p className="text-xs text-slate-500">
+              Easily upload your current catalog to Supabase or pull latest cloud data.
+            </p>
+
+            {syncResult && (
+              <div className={`p-3 rounded-xl border flex items-center gap-2 text-xs font-bold ${
+                syncResult.success
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300'
+                  : 'bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300 border-red-300'
+              }`}>
+                {syncResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />}
+                <span>{syncResult.message}</span>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={handleSyncToSupabase}
+                disabled={isSyncing || !IS_SUPABASE_CONFIGURED}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all ${
+                  IS_SUPABASE_CONFIGURED
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-sm'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                }`}
+                title={!IS_SUPABASE_CONFIGURED ? 'Connect Supabase first to push data' : 'Upload local products to Supabase'}
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>{isSyncing ? 'Syncing...' : `Upload All Local Products (${products.length}) to Supabase`}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={loadAdminData}
+                className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-xl cursor-pointer flex items-center gap-2"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Refresh & Pull Cloud Products</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResetCatalog}
+                className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/60 text-slate-600 dark:text-slate-300 font-bold text-xs rounded-xl cursor-pointer flex items-center gap-2"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Reset to Default 5 Products</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 1-Click SQL Setup Guide & Schema */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-2">
+                  <span>Supabase SQL Setup Script</span>
+                  <span className="text-[10px] bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 px-2 py-0.5 rounded-full font-bold">1-Click Ready</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Run this in your Supabase SQL Editor to create tables for products, categories, orders, and promo codes with public RLS enabled.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const sqlScript = `-- 1. Products Table
+CREATE TABLE IF NOT EXISTS public.products (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT,
+  category TEXT NOT NULL,
+  price NUMERIC NOT NULL,
+  original_price NUMERIC,
+  image TEXT,
+  images JSONB DEFAULT '[]'::jsonb,
+  is_flash_deal BOOLEAN DEFAULT false,
+  is_hot BOOLEAN DEFAULT false,
+  rating NUMERIC DEFAULT 4.8,
+  reviews_count NUMERIC DEFAULT 0,
+  in_stock BOOLEAN DEFAULT true,
+  stock_quantity NUMERIC DEFAULT 50,
+  description TEXT,
+  specs JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 2. Categories Table
+CREATE TABLE IF NOT EXISTS public.categories (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT,
+  description TEXT,
+  image TEXT,
+  is_active BOOLEAN DEFAULT true
+);
+
+-- 3. Orders Table
+CREATE TABLE IF NOT EXISTS public.orders (
+  id TEXT PRIMARY KEY,
+  date TEXT NOT NULL,
+  customer_name TEXT NOT NULL,
+  customer_phone TEXT NOT NULL,
+  customer_address TEXT NOT NULL,
+  delivery_area TEXT NOT NULL,
+  items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  items_total NUMERIC NOT NULL,
+  delivery_fee NUMERIC NOT NULL,
+  promo_discount NUMERIC DEFAULT 0,
+  promo_code TEXT,
+  grand_total NUMERIC NOT NULL,
+  payment_method TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'Order Placed',
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 4. Promo Codes Table
+CREATE TABLE IF NOT EXISTS public.promo_codes (
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  discount_type TEXT NOT NULL DEFAULT 'percentage',
+  discount_value NUMERIC NOT NULL,
+  min_order_amount NUMERIC DEFAULT 0,
+  usage_limit NUMERIC DEFAULT 100,
+  usage_count NUMERIC DEFAULT 0,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 5. Row Level Security Policies
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.promo_codes ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow public all products" ON public.products FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all categories" ON public.categories FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all orders" ON public.orders FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all promo_codes" ON public.promo_codes FOR ALL USING (true) WITH CHECK (true);`;
+
+                  navigator.clipboard.writeText(sqlScript);
+                  setCopiedSql(true);
+                  setTimeout(() => setCopiedSql(false), 2500);
+                }}
+                className="px-4 py-2 bg-slate-900 hover:bg-black text-white dark:bg-white dark:text-slate-900 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+              >
+                {copiedSql ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedSql ? 'Copied to Clipboard!' : 'Copy SQL Script'}</span>
+              </button>
+            </div>
+
+            <div className="bg-slate-950 text-slate-300 p-4 rounded-xl font-mono text-[11px] overflow-x-auto max-h-64 border border-slate-800">
+              <pre className="leading-relaxed">
+{`-- 1. Create Products Table
+CREATE TABLE IF NOT EXISTS public.products (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT,
+  category TEXT NOT NULL,
+  price NUMERIC NOT NULL,
+  original_price NUMERIC,
+  image TEXT,
+  images JSONB DEFAULT '[]'::jsonb,
+  is_flash_deal BOOLEAN DEFAULT false,
+  is_hot BOOLEAN DEFAULT false,
+  rating NUMERIC DEFAULT 4.8,
+  reviews_count NUMERIC DEFAULT 0,
+  in_stock BOOLEAN DEFAULT true,
+  stock_quantity NUMERIC DEFAULT 50,
+  description TEXT,
+  specs JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 2. Create Categories Table
+CREATE TABLE IF NOT EXISTS public.categories (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT,
+  description TEXT,
+  image TEXT,
+  is_active BOOLEAN DEFAULT true
+);
+
+-- 3. Create Orders Table
+CREATE TABLE IF NOT EXISTS public.orders (
+  id TEXT PRIMARY KEY,
+  date TEXT NOT NULL,
+  customer_name TEXT NOT NULL,
+  customer_phone TEXT NOT NULL,
+  customer_address TEXT NOT NULL,
+  delivery_area TEXT NOT NULL,
+  items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  items_total NUMERIC NOT NULL,
+  delivery_fee NUMERIC NOT NULL,
+  promo_discount NUMERIC DEFAULT 0,
+  promo_code TEXT,
+  grand_total NUMERIC NOT NULL,
+  payment_method TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'Order Placed',
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 4. Enable Full RLS for Public Store
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public all products" ON public.products FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all categories" ON public.categories FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all orders" ON public.orders FOR ALL USING (true) WITH CHECK (true);`}
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* IN-APP DELETE PRODUCT CONFIRMATION MODAL */}
+      {productToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full space-y-4 text-xs shadow-2xl border border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-950/60 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <h3 className="text-base font-black uppercase text-slate-900 dark:text-white">
+                Delete Product?
+              </h3>
+            </div>
+
+            <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+              Are you sure you want to permanently delete <strong className="text-slate-900 dark:text-white">"{productToDelete.name}"</strong>? This will remove it from your store and database.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setProductToDelete(null)}
+                className="px-4 py-2 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold rounded-xl cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteProduct}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-extrabold uppercase rounded-xl cursor-pointer shadow-md"
+              >
+                Confirm Delete
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
