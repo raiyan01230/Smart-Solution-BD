@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   fetchProducts, saveProduct, deleteProduct, resetProductsToDefault, syncAllProductsToSupabase,
   fetchOrders, updateOrderStatus,
-  fetchPromoCodes, savePromoCode,
+  fetchPromoCodes, savePromoCode, deletePromoCode,
   fetchAdvertisements, saveAdvertisement, deleteAdvertisement,
   fetchStoreSettings, saveStoreSettings,
   fetchCategories, saveCategory, deleteCategory,
@@ -19,11 +19,12 @@ import {
   SUPABASE_ANON_KEY
 } from '../lib/supabase';
 import { InvoicePrintModal } from '../components/InvoicePrintModal';
+import { processMultipleComputerImages, processComputerImage } from '../utils/imageHelper';
 import {
   Shield, Package, ShoppingBag, Tag, Settings, LogOut,
   Plus, Edit, Trash2, Search, Upload, CheckCircle2, AlertCircle, RefreshCw, Key,
   BarChart2, Image, Layers, Wrench, Phone, MessageCircle, Printer, Eye, Lock, Copy, Check, X,
-  Database, Globe, ArrowUpRight
+  Database, Globe, ArrowUpRight, FolderUp, Star
 } from 'lucide-react';
 
 export const AdminPage: React.FC<{ navigate: (path: string) => void }> = ({ navigate }) => {
@@ -308,29 +309,43 @@ export const AdminPage: React.FC<{ navigate: (path: string) => void }> = ({ navi
     setTimeout(() => setSyncResult(null), 3500);
   };
 
-  // Image File Upload to Supabase
-  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Computer Multiple & Single Image File Upload Handler
+  const handleMultipleProductImageUpload = async (e: React.ChangeEvent<HTMLInputElement> | React.DragEvent) => {
+    let files: FileList | null = null;
+    if ('dataTransfer' in e) {
+      e.preventDefault();
+      files = e.dataTransfer.files;
+    } else if (e.target && 'files' in e.target) {
+      files = (e.target as HTMLInputElement).files;
+    }
+
+    if (!files || files.length === 0) return;
 
     setUploadingImage(true);
-    const url = await uploadImageToSupabase(file);
-    setUploadingImage(false);
-
-    if (url) {
-      if (editingProduct) {
-        const existing = editingProduct.images || (editingProduct.image ? [editingProduct.image] : []);
-        const updated = [...existing, url].slice(0, 10);
-        setEditingProduct((prev) => ({
-          ...prev,
-          image: updated[0] || url,
-          images: updated,
-        }));
-      } else if (editingAd) {
-        setEditingAd((prev) => ({ ...prev, image: url }));
+    try {
+      const urls = await processMultipleComputerImages(files);
+      if (urls.length > 0) {
+        if (editingProduct) {
+          const existing = editingProduct.images || (editingProduct.image ? [editingProduct.image] : []);
+          const updated = Array.from(new Set([...existing, ...urls])).slice(0, 10);
+          setEditingProduct((prev) => ({
+            ...prev,
+            image: updated[0] || prev?.image || urls[0],
+            images: updated,
+          }));
+        } else if (editingAd) {
+          setEditingAd((prev) => ({ ...prev, image: urls[0] }));
+        }
       }
-    } else {
-      alert('Image upload failed. You can paste an image URL instead.');
+    } catch (err) {
+      console.error('Error processing computer images:', err);
+    } finally {
+      setUploadingImage(false);
+      if ('target' in e && e.target) {
+        try {
+          (e.target as HTMLInputElement).value = '';
+        } catch {}
+      }
     }
   };
 
@@ -358,6 +373,13 @@ export const AdminPage: React.FC<{ navigate: (path: string) => void }> = ({ navi
 
     await savePromoCode(promo);
     setEditingPromo(null);
+    loadAdminData();
+  };
+
+  // Delete Promo Code
+  const handleDeletePromo = async (id: string) => {
+    setPromos((prev) => prev.filter((p) => p.id !== id));
+    await deletePromoCode(id);
     loadAdminData();
   };
 
@@ -916,7 +938,7 @@ export const AdminPage: React.FC<{ navigate: (path: string) => void }> = ({ navi
               Manage Store Promo Codes
             </h2>
             <button
-              onClick={() => setEditingPromo({ discount_type: 'percentage', is_active: true, min_order_amount: 500, usage_limit: 100 })}
+              onClick={() => setEditingPromo({ code: '', discount_type: 'percentage', discount_value: 10, is_active: true, min_order_amount: 0, usage_limit: 100 })}
               className="px-3.5 py-1.5 bg-red-600 text-white font-bold text-xs rounded-xl hover:bg-red-700 transition-colors flex items-center gap-1 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
@@ -931,15 +953,18 @@ export const AdminPage: React.FC<{ navigate: (path: string) => void }> = ({ navi
                   <span className="font-mono font-black text-sm text-red-600 block">{pr.code}</span>
                   <span className="text-slate-500">
                     {pr.discount_type === 'percentage' ? `${pr.discount_value}% OFF` : `৳${pr.discount_value} OFF`}
-                    {' · Min Order: ৳'}{pr.min_order_amount}
+                    {Number(pr.min_order_amount) > 0 ? ` · Min Order: ৳${pr.min_order_amount}` : ' · No Min Order'}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${pr.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
+                <div className="flex items-center gap-1.5">
+                  <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${pr.is_active ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>
                     {pr.is_active ? 'Active' : 'Disabled'}
                   </span>
-                  <button onClick={() => setEditingPromo(pr)} className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer">
+                  <button onClick={() => setEditingPromo(pr)} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title="Edit Promo Code">
                     <Edit className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => handleDeletePromo(pr.id)} className="p-1.5 text-slate-400 hover:text-red-600 cursor-pointer" title="Delete Promo Code">
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -1094,8 +1119,8 @@ export const AdminPage: React.FC<{ navigate: (path: string) => void }> = ({ navi
           <h2 className="text-base font-black text-slate-900 dark:text-white uppercase">Supabase Storage Image Gallery</h2>
           <label className="inline-flex px-4 py-2 bg-red-600 text-white font-bold text-xs rounded-xl cursor-pointer items-center gap-2">
             <Upload className="w-4 h-4" />
-            <span>Upload New Image</span>
-            <input type="file" accept="image/*" onChange={handleImageFileChange} className="hidden" />
+            <span>Upload Photos from Computer (Multi-Select)</span>
+            <input type="file" multiple accept="image/*" onChange={handleMultipleProductImageUpload} className="hidden" />
           </label>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 pt-3">
@@ -1809,67 +1834,117 @@ CREATE POLICY "Allow public all orders" ON public.orders FOR ALL USING (true) WI
                 />
               </div>
 
-              {/* MULTI-IMAGE GALLERY UPLOADER (UP TO 10 IMAGES) */}
-              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+              {/* MULTI-IMAGE GALLERY UPLOADER FROM COMPUTER */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
                 <div className="flex justify-between items-center">
-                  <label className="block font-extrabold text-slate-900 dark:text-white uppercase">
-                    Product Image Gallery (Up to 10 Photos)
-                  </label>
-                  <span className="text-[11px] font-mono font-bold text-red-600">
-                    {(editingProduct.images || (editingProduct.image ? [editingProduct.image] : [])).length} / 10 Images
+                  <div>
+                    <label className="block font-black text-slate-900 dark:text-white uppercase text-xs">
+                      Product Photos (Select from Computer)
+                    </label>
+                    <p className="text-[11px] text-slate-500">
+                      Upload directly from your PC. Click "Set as Cover" on any photo to make it the primary display image.
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-red-600 bg-red-50 dark:bg-red-950/60 px-2 py-1 rounded-lg">
+                    {(editingProduct.images || (editingProduct.image ? [editingProduct.image] : [])).length} / 10 Photos
                   </span>
                 </div>
 
                 {/* Thumbnail Grid */}
-                <div className="grid grid-cols-5 gap-2">
-                  {(editingProduct.images || (editingProduct.image ? [editingProduct.image] : [])).map((imgUrl, idx) => (
-                    <div key={idx} className="relative aspect-square bg-white dark:bg-slate-900 rounded-xl p-1 border border-slate-200 dark:border-slate-700 group">
-                      <img src={imgUrl} className="w-full h-full object-contain rounded-lg" />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const current = editingProduct.images || (editingProduct.image ? [editingProduct.image] : []);
-                          const updated = current.filter((_, i) => i !== idx);
-                          setEditingProduct({
-                            ...editingProduct,
-                            image: updated[0] || '',
-                            images: updated,
-                          });
-                        }}
-                        className="absolute -top-1.5 -right-1.5 bg-red-600 text-white rounded-full p-1 shadow-md opacity-90 hover:opacity-100 hover:scale-110 transition-all cursor-pointer"
-                        title="Remove Image"
+                {(editingProduct.images || (editingProduct.image ? [editingProduct.image] : [])).length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-1">
+                    {(editingProduct.images || (editingProduct.image ? [editingProduct.image] : [])).map((imgUrl, idx) => (
+                      <div
+                        key={idx}
+                        className={`relative aspect-square bg-white dark:bg-slate-900 rounded-xl p-1.5 border group transition-all ${
+                          idx === 0
+                            ? 'border-2 border-red-500 ring-2 ring-red-500/20'
+                            : 'border-slate-200 dark:border-slate-700 hover:border-slate-400'
+                        }`}
                       >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                        <img src={imgUrl} className="w-full h-full object-contain rounded-lg" alt={`Product preview ${idx + 1}`} />
 
-                {/* Upload Action controls */}
+                        {/* Cover Badge or Set as Cover Button */}
+                        {idx === 0 ? (
+                          <span className="absolute top-1.5 left-1.5 bg-red-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-1 shadow-sm">
+                            <Star className="w-2.5 h-2.5 fill-white" />
+                            <span>COVER</span>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const current = editingProduct.images || (editingProduct.image ? [editingProduct.image] : []);
+                              const reordered = [current[idx], ...current.filter((_, i) => i !== idx)];
+                              setEditingProduct({
+                                ...editingProduct,
+                                image: reordered[0],
+                                images: reordered,
+                              });
+                            }}
+                            className="absolute bottom-1.5 left-1.5 right-1.5 bg-slate-900/85 hover:bg-red-600 text-white text-[9px] font-bold py-1 rounded text-center transition-colors shadow-sm cursor-pointer"
+                            title="Set as Main Cover Photo"
+                          >
+                            Set as Cover
+                          </button>
+                        )}
+
+                        {/* Remove Image Button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const current = editingProduct.images || (editingProduct.image ? [editingProduct.image] : []);
+                            const updated = current.filter((_, i) => i !== idx);
+                            setEditingProduct({
+                              ...editingProduct,
+                              image: updated[0] || '',
+                              images: updated,
+                            });
+                          }}
+                          className="absolute -top-1.5 -right-1.5 bg-red-600 hover:bg-red-700 text-white rounded-full p-1 shadow-md hover:scale-110 transition-transform cursor-pointer"
+                          title="Remove this photo"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* PC Multiple Images Dropzone Button */}
                 {(editingProduct.images || (editingProduct.image ? [editingProduct.image] : [])).length < 10 && (
-                  <div className="flex gap-2 pt-1">
+                  <label
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={handleMultipleProductImageUpload}
+                    className="border-2 border-dashed border-red-300 dark:border-red-900/60 hover:border-red-500 dark:hover:border-red-500 rounded-2xl p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all bg-red-50/30 dark:bg-red-950/10 hover:bg-red-50/60 group"
+                  >
                     <input
-                      type="text"
-                      value={editingProduct.image || ''}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        const current = editingProduct.images || [];
-                        setEditingProduct({
-                          ...editingProduct,
-                          image: val,
-                          images: Array.from(new Set([val, ...current])).filter(Boolean),
-                        });
-                      }}
-                      placeholder="Paste Image URL or click Upload button"
-                      className="flex-1 p-2 text-xs rounded-xl border dark:bg-slate-800"
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={handleMultipleProductImageUpload}
+                      className="hidden"
                     />
 
-                    <label className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl cursor-pointer flex items-center gap-1 shrink-0 transition-colors shadow-xs">
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>Upload File</span>
-                      <input type="file" accept="image/*" onChange={handleImageFileChange} className="hidden" />
-                    </label>
-                  </div>
+                    {uploadingImage ? (
+                      <div className="flex items-center gap-2 text-red-600 font-bold py-2 text-xs">
+                        <RefreshCw className="w-5 h-5 animate-spin" />
+                        <span>Processing & Optimizing photos from computer...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-950/60 text-red-600 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                          <FolderUp className="w-5 h-5" />
+                        </div>
+                        <span className="font-extrabold text-sm text-slate-800 dark:text-slate-200">
+                          Select Photos from Computer
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                          Click to browse PC files or Drag & Drop here (Hold Shift or Ctrl to select multiple pictures)
+                        </span>
+                      </>
+                    )}
+                  </label>
                 )}
               </div>
 
@@ -1892,24 +1967,85 @@ CREATE POLICY "Allow public all orders" ON public.orders FOR ALL USING (true) WI
             <form onSubmit={handleSavePromo} className="space-y-3">
               <div>
                 <label className="block font-bold mb-1">Promo Code</label>
-                <input type="text" required value={editingPromo.code || ''} onChange={(e) => setEditingPromo({ ...editingPromo, code: e.target.value.toUpperCase() })} className="w-full p-2 rounded-xl border dark:bg-slate-800 font-mono uppercase" />
+                <input type="text" required value={editingPromo.code || ''} onChange={(e) => setEditingPromo({ ...editingPromo, code: e.target.value.toUpperCase() })} className="w-full p-2.5 rounded-xl border dark:bg-slate-800 font-mono uppercase font-bold text-xs" />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold mb-1">Type</label>
-                  <select value={editingPromo.discount_type || 'percentage'} onChange={(e) => setEditingPromo({ ...editingPromo, discount_type: e.target.value as any })} className="w-full p-2 rounded-xl border dark:bg-slate-800">
+                  <label className="block font-bold mb-1">Discount Type</label>
+                  <select value={editingPromo.discount_type || 'percentage'} onChange={(e) => setEditingPromo({ ...editingPromo, discount_type: e.target.value as any })} className="w-full p-2.5 rounded-xl border dark:bg-slate-800 font-bold text-xs cursor-pointer">
                     <option value="percentage">Percentage (%)</option>
                     <option value="fixed">Fixed Amount (৳)</option>
                   </select>
                 </div>
                 <div>
                   <label className="block font-bold mb-1">Discount Value</label>
-                  <input type="number" required value={editingPromo.discount_value || ''} onChange={(e) => setEditingPromo({ ...editingPromo, discount_value: Number(e.target.value) })} className="w-full p-2 rounded-xl border dark:bg-slate-800 font-mono" />
+                  <input type="number" required min="1" value={editingPromo.discount_value || ''} onChange={(e) => setEditingPromo({ ...editingPromo, discount_value: Number(e.target.value) })} className="w-full p-2.5 rounded-xl border dark:bg-slate-800 font-mono font-bold text-xs" />
                 </div>
               </div>
-              <div className="flex justify-end gap-2 pt-3">
-                <button type="button" onClick={() => setEditingPromo(null)} className="px-4 py-2 bg-slate-200 font-bold rounded-xl cursor-pointer">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-red-600 text-white font-bold rounded-xl cursor-pointer">Save Code</button>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold mb-1 text-slate-900 dark:text-white">
+                    Min Order Amount (৳)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editingPromo.min_order_amount ?? ''}
+                    onChange={(e) =>
+                      setEditingPromo({
+                        ...editingPromo,
+                        min_order_amount: e.target.value === '' ? 0 : Number(e.target.value),
+                      })
+                    }
+                    placeholder="0 (no minimum requirement)"
+                    className="w-full p-2.5 rounded-xl border-2 border-red-500/40 focus:border-red-500 dark:bg-slate-800 font-mono font-bold text-xs"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">Set to 0 if there is no minimum requirement.</p>
+                </div>
+                <div>
+                  <label className="block font-bold mb-1">Usage Limit (Times)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={editingPromo.usage_limit ?? 100}
+                    onChange={(e) =>
+                      setEditingPromo({
+                        ...editingPromo,
+                        usage_limit: Number(e.target.value),
+                      })
+                    }
+                    className="w-full p-2.5 rounded-xl border dark:bg-slate-800 font-mono text-xs"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">Total uses allowed.</p>
+                </div>
+              </div>
+
+              {/* Status active/inactive checkbox */}
+              <div className="flex items-center gap-2 pt-2 pb-1 border-t border-slate-100 dark:border-slate-800">
+                <input
+                  type="checkbox"
+                  id="promo_active_checkbox"
+                  checked={editingPromo.is_active ?? true}
+                  onChange={(e) =>
+                    setEditingPromo({
+                      ...editingPromo,
+                      is_active: e.target.checked,
+                    })
+                  }
+                  className="w-4 h-4 rounded text-red-600 cursor-pointer"
+                />
+                <label htmlFor="promo_active_checkbox" className="font-bold text-slate-800 dark:text-slate-200 cursor-pointer select-none text-xs">
+                  Promo code is Active & usable at Checkout
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button type="button" onClick={() => setEditingPromo(null)} className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold rounded-xl cursor-pointer">Cancel</button>
+                <button type="submit" className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white font-extrabold uppercase rounded-xl cursor-pointer shadow-md">
+                  Save Promo Code
+                </button>
               </div>
             </form>
           </div>

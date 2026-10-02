@@ -627,6 +627,22 @@ export async function savePromoCode(promo: PromoCode): Promise<boolean> {
   return true;
 }
 
+export async function deletePromoCode(id: string): Promise<boolean> {
+  const current = await fetchPromoCodes();
+  const updated = current.filter((p) => p.id !== id);
+  try {
+    localStorage.setItem('smart_promos', JSON.stringify(updated));
+  } catch {}
+
+  if (IS_SUPABASE_CONFIGURED && supabase) {
+    try {
+      await supabase.from('promo_codes').delete().eq('id', id);
+    } catch (e) {}
+  }
+
+  return true;
+}
+
 // --- ADVERTISEMENTS API ---
 export async function fetchAdvertisements(): Promise<Advertisement[]> {
   const local = typeof localStorage !== 'undefined' ? localStorage.getItem('smart_ads') : null;
